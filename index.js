@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-const debug = require('debug')('signalk-imu');
 const Bacon = require('baconjs');
 
 
@@ -178,17 +177,15 @@ module.exports = function(app) {
     }, config.environmentPeriod*1000);
 
     
-    debug("started");
   }
 
   plugin.stop = function() {
     if ( plugin.environmentInterval !== undefined ) {
-      plugin.environmentInterval.clearInterval();
+      clearInterval(plugin.environmentInterval);
     }
     if ( plugin.motionInterval !== undefined ) {
-      plugin.motionInterval.clearInterval();    
+      clearInterval(plugin.motionInterval);
     }
-    debug("stopped");
   }
 
   plugin.id = "sk-imu"
@@ -197,6 +194,11 @@ module.exports = function(app) {
 
   plugin.schema = {
     title: "IMU Source",
+    description: "This plugin reads data from a SPI attached IMU defice, supported by the RTIMULib2 library. "+
+    " It provides motion measurements (pitch, roll, yaw, heading and gyro rates) at high frequency. "+
+    " It also provides environmental measurements (temperature and pressure) at low frequency. "+
+    " For acurate readings the sensor must be correctly aligned with the boat, x = pitch, y = roll, z = yaw "+
+    " and the sensor must be calibrated using the procedure in RTIMULib2. ",
     type: "object",
     properties: {
       testing: {
@@ -219,7 +221,6 @@ module.exports = function(app) {
         type: "integer",
         default: 0
       }
-
     }
   }
 
