@@ -1,5 +1,5 @@
 {
-  "name": "signalk-imu",
+  "name": "@signalk/signalk-imu",
   "version": "1.4.0",
   "description": "Plugin that reads IMU data from an I2C conneted 10Dof sensor board.",
   "main": "index.js",
