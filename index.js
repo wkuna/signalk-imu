@@ -16,165 +16,150 @@
  */
 
 const Bacon = require('baconjs');
+const fs = require('fs');
+const async = require('async');
 
 
 module.exports = function(app) {
+  var BNO055;
+  if ( fs.existsSync('sys/class/i2c-adapter') ) { 
+    // 1 wire is enabled a
+    BNO055 = require('./bno055');
+
+    console.log("signalk-imu: BMO055 avaiable. ");
+  } else {
+    BNO055 = require('./fakesensor');
+    console.log("signalk-imu: BMO055 not available, Created Fake Sensor ");
+  }
+
   var plugin = {};
   var unsubscribes = [];
-
-  const stats = require('./stats');
-
-  function Pose(n) {
-    // pitch and role should never (hopefully) wrap, so standard stats are Ok.
-    // yaw may go -170 +170 which should give a mean of -180 or +180, not 0,
-    // hence an angular mean is required.
-      this.roll = new stats.Stats(n, "pose.roll");
-      this.pitch = new stats.Stats(n, "pose.pitch");
-      this.yaw = new stats.AngleStats(n, "pose.yaw");
-  }
-  Pose.prototype.set = function(vec) {
-    this.roll.set(vec.x);
-    this.pitch.set(vec.y);
-    this.yaw.set(vec.z);
-  };
-  Pose.prototype.yawToHeading = function(deviation) {
-    var heading = this.yaw.c - deviation;
-    if ( this.yaw < Math.PI/2) {
-      heading = heading + 1.5*Math.PI;
-    } else {
-      heading = heading - Math.PI/2;
-    }
-    if ( heading < 0) {
-      heading = heading + 2*Math.PI;
-    }
-    if ( heading > 2*Math.PI) {
-      heading = heading - 2*Math.PI;
-    }
-    return heading;
-  }
-
-  function RateGyro(n) {
-    // Although rate gyro is r/s the r/s is not circular so a standard statistic is appropriate.
-      this.roll = new stats.Stats(n, "rate.roll");
-      this.pitch = new stats.Stats(n, "rate.pitch");
-      this.yaw = new stats.Stats(n,"rate.yaw");
-  }
-  RateGyro.prototype.set = function(vec) {
-    this.roll.set(vec.x);
-    this.pitch.set(vec.y);
-    this.yaw.set(vec.z);
-  };
-
 
   function convertToK(v) {
     return v+273.15;
   }
 
-  function convertToPa(hpa) {
-    return hpa*100;
-  }
-
-
 
   plugin.start = function(config) {
-    console.log("IMU Config ", JSON.stringify(config));
-    var IMU;
-    if ( config.testing ) { 
-      const fakeimu = require('./fakeimu');
-        IMU = new fakeimu.FakeIMU();
-        console.log("Created IMU as ", IMU);
-    } else {
-        const nodeimu  = require('nodeimu');
-        IMU = new nodeimu.IMU();        
-    }
+    // console.log("IMU Config ", JSON.stringify(config));
+   
+    var bno055 = new BNO055(config);
 
-    var pose = new Pose(5);
-    var heading = new stats.AngleStats(30, "heading");
-    var rateGyro = new RateGyro(5);
-    var offsetRadians = config.offset*Math.PI/180;
-    plugin.motionInterval = setInterval(function() {
-      IMU.getValue(function(e, data) {
-        if (e) {
-          console.log(e);
-          return;
+    var systemStatus = undefined;
+    var configStatus = undefined;
+    var callSequence = {
+      checkStatus: function(callback) {
+        if (systemStatus === undefined) {
+          bno055.getSystemStatus((err, res) => {
+            if (err) return callback(err);
+            if (res.selfTestResult == "1111" && res.systemStatus == 0 ) {
+              systemStatus = res;
+              console.log("BNO055 System Start Ok.")
+              callback(null,res);
+            } else {
+              callback(true,res);
+            }
+          });          
+        } else {
+          callback(null,systemStatus);
         }
-
-        // TODO, check that these are the best data sources, need to the read the RTIMULib codebase.
-        pose.set(data.fusionPose);
-        rateGyro.set(data.gyro);
-        heading.set(pose.yawToHeading(offsetRadians));
-
-
-        var delta = {
-          "context": "vessels." + app.selfId,
-          "updates": [
-            {
-              "source": {
-                "src": "imu_sensor"
-              },
-              "timestamp": (new Date()).toISOString(),
-              "values": [
+      },
+      checkCalibration: function(callback) {
+        if ( configStatus === undefined) {
+          bno055.getCalibrationStatus((err, res) =>{
+            if (err) return callback(err);
+            if ( res.systemStatus == 0x03 && res.gyroStatus == 0x03 && res.accelerometerStatus == 0x03 && res.magnetometerStatus == 0x03 ) {
+              configStatus = res;
+              console.log("BNO055 Calibration Ok.")
+              callback(null, res);
+            } else {
+              callback(true, res);
+            }
+          });
+        } else {
+          callback(null, configStatus);
+        }
+      },
+      temperature: function(callback) { bno055.getTemperature(callback)},
+      euler: function(callback) { bno055.getEuler(callback)},
+      laccel: function(callback) { bno055.getLinearAcceleration(callback)},
+      gyro: function(callback) { bno055.getGyroscope(callback)}
+    };
+    bno055.beginNDOF((err, res) => {
+      if ( err ) {
+        console.log("IMU Failed to start", err);
+      } else {
+        plugin.motionInterval = setInterval(() => {
+          async.series(callSequence, (err, res) => {
+            if (err) {
+              console.log("Failed to read IMU", err, res);
+            } else {
+              var delta = {
+                "context": "vessels." + app.selfId,
+                "updates": [
                   {
-                    "path": "navigation.headingMagnetic",
-                    "value": heading.mean().toPrecision(4)
-                  },
-                  {
-                    "path": "navigation.rateOfTurn",
-                    "value": rateGyro.yaw.mean().toPrecision(4)
-                  },
-                  {
-                    "path": "navigation.attitude.roll",
-                    "value": pose.roll.mean().toPrecision(4),
-                  },
-                  {
-                    "path": "navigation.attitude.pitch",
-                    "value": pose.pitch.mean().toPrecision(4),
-                  },
-                  {
-                    "path": "navigation.attitude.yaw",
-                    "value": pose.yaw.mean().toPrecision(4),
+                    "source": {
+                      "src": "BNO055"
+                    },
+                    "timestamp": (new Date()).toISOString(),
+                    "values": [
+                        {
+                          "path" : "environment.inside.temperature",
+                          "value" : convertToK(res.temperature)
+                        },
+                        {
+                          "path": "navigation.rateOfTurn",
+                          "value": res.gyro.z
+                        },
+                        {
+                          "path": "navigation.gyro.roll",
+                          "value": res.gyro.x
+                        },
+                        {
+                          "path": "navigation.gyro.pitch",
+                          "value": res.gyro.y
+                        },
+                        {
+                          "path": "navigation.gyro.yaw",
+                          "value": res.gyro.z
+                        },
+                        {
+                          "path": "navigation.accel.x",
+                          "value": res.laccel.x
+                        },
+                        {
+                          "path": "navigation.accel.y",
+                          "value": res.laccel.y
+                        },
+                        {
+                          "path": "navigation.accel.z",
+                          "value": res.laccel.z
+                        },
+                        {
+                          "path": "navigation.headingMagnetic",
+                          "value": res.euler.heading,
+                        },
+                        {
+                          "path": "navigation.attitude.roll",
+                          "value": res.euler.roll,
+                        },
+                        {
+                          "path": "navigation.attitude.pitch",
+                          "value": res.euler.pitch,
+                        }
+                      ]
                   }
                 ]
+              };
+              //console.log("signalk-imu got motion delta: " + JSON.stringify(delta))
+              app.handleMessage(plugin.id, delta);
             }
-          ]
-        }        
-        console.log("got motion delta: " + JSON.stringify(delta))
-        app.handleMessage(plugin.id, delta);
-      })
-    }, config.motionPeriod);
+          });
+        
+        },  config.motionPeriod);
+      }
+    });
 
-    plugin.environmentInterval = setInterval(function() {
-      IMU.getValue(function(e, data) {
-        if (e) {
-          console.log(e);
-          return;
-        }
-        var values = [];
-        if ( data.temperature ) {
-          values.push({"path": "environment.inside.temperature", "value": convertToK(data.temperature).toPrecision(4)} );
-        }
-        if ( data.pressure ) {
-          values.push({"path": "environment.outside.pressure", "value": convertToPa(data.pressure).toPrecision(4)} );
-        }
-        if ( data.humidity ) {
-
-        }
-        var delta = {
-          "context": "vessels." + app.selfId,
-          "updates": [
-            {
-              "source": {
-                "src": "imu_sensor"
-              },
-              "timestamp": (new Date()).toISOString(),
-              "values": values
-            }
-          ]
-        }        
-        console.log("got env delta: " + JSON.stringify(delta))
-        app.handleMessage(plugin.id, delta);
-      })
-    }, config.environmentPeriod*1000);
 
     
   }
@@ -194,32 +179,13 @@ module.exports = function(app) {
 
   plugin.schema = {
     title: "IMU Source",
-    description: "This plugin reads data from a SPI attached IMU defice, supported by the RTIMULib2 library. "+
-    " It provides motion measurements (pitch, roll, yaw, heading and gyro rates) at high frequency. "+
-    " It also provides environmental measurements (temperature and pressure) at low frequency. "+
-    " For acurate readings the sensor must be correctly aligned with the boat, x = pitch, y = roll, z = yaw "+
-    " and the sensor must be calibrated using the procedure in RTIMULib2. ",
+    description: "This plugin reads data from a I2C attached BNO055 defice. The device should be set up so that the BNO055 on the chip is towards the bow.",
     type: "object",
     properties: {
-      testing: {
-       title: "Testing",
-          type: "boolean",
-          default: true
-      },
       motionPeriod : {
         title: "Period of motion readings in ms",
         type: "integer",
         default: 1000
-      },
-      environmentPeriod : {
-        title: "Period of environment readings in s",
-        type: "integer",
-        default: 10
-      },
-      offset : {
-        title: "Compass Sensor offset (degrees)",
-        type: "integer",
-        default: 0
       }
     }
   }
@@ -228,10 +194,7 @@ module.exports = function(app) {
 
   plugin.uiSchema = {
     "ui:order": [
-    'motionPeriod',
-    'environmentPeriod',
-    'offset',
-    'testing'
+    'motionPeriod'
     ]
   };
 

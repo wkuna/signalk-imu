@@ -1,5 +1,5 @@
 {
-  "name": "@signalk/signalk-imu",
+  "name": "@ieb/signalk-imu",
   "version": "1.4.0",
   "description": "Plugin that reads IMU data from an I2C conneted 10Dof sensor board.",
   "main": "index.js",
@@ -12,11 +12,13 @@
   "license": "Apache-2.0",
   "dependencies": {
     "baconjs": "^0.7.88",
-    "nodeimu": "^2.1.9"
+    "async": "^1.4.2"
+  },
+  "optionalDependencies": {
+    "node-BNO055": "github:ieb/node-BNO055"
   },
   "repository": {
-    "type" : "git",
-    "url" : "https://github.com/ieb/signalk-imu"
+    "type": "git",
+    "url": "https://github.com/ieb/signalk-imu"
   }
-
 }
