@@ -24,7 +24,7 @@ module.exports = function(app) {
   var BNO055;
   if ( fs.existsSync('/sys/class/i2c-adapter') ) { 
     // 1 wire is enabled a
-    BNO055 = require('./bno055');
+    BNO055 = require('node-bno055');
 
     console.log("signalk-imu: BMO055 avaiable. ");
   } else {
@@ -45,35 +45,45 @@ module.exports = function(app) {
    
     var bno055 = new BNO055(config);
 
-    var systemStatus = undefined;
     var configStatus = undefined;
+    var calibrated = false;
     var callSequence = {
-      checkStatus: function(callback) {
-        if (systemStatus === undefined) {
-          bno055.getSystemStatus((err, res) => {
-            if (err) return callback(err);
-            if (res.selfTestResult == "1111" && res.systemStatus == 0 ) {
-              systemStatus = res;
-              console.log("BNO055 System Start Ok.")
-              callback(null,res);
-            } else {
-              callback(true,res);
-            }
-          });          
-        } else {
-          callback(null,systemStatus);
-        }
-      },
       checkCalibration: function(callback) {
-        if ( configStatus === undefined) {
+        if ( !calibrated ) {
           bno055.getCalibrationStatus((err, res) =>{
             if (err) return callback(err);
-            if ( res.systemStatus == 0x03 && res.gyroStatus == 0x03 && res.accelerometerStatus == 0x03 && res.magnetometerStatus == 0x03 ) {
+            res.system  = "Ok";
+            res.gyro = "Ok";
+            res.mag = "Ok";
+            res.accel = "Ok";
+            res.cfgStatus = 0;
+            if ( res.systemStatus !== 0x03 ) {
+              res.system = "Needs calibration.";
+              res.cfgStatus = res.cfgStatus | 0x01;
+            }
+            if ( res.gyroStatus !== 0x03 ) {
+              res.gyro = "Gyro needs calibrating, keep sensor still for a few seconds.";
+              res.cfgStatus = res.cfgStatus | 0x02;
+            }
+            if ( res.accelerometerStatus !== 0x03 ) {
+              res.accel = "Accelerometer needs calibrating, Slowly move between 6 stable positions, and hold for > 2s in each.";
+              res.cfgStatus = res.cfgStatus | 0x04;
+            }
+            if ( res.magnetometerStatus !== 0x03 ) {
+              res.mag = "Magnatomiter needs calibrating, Perform figure of 8 movements.";
+              res.cfgStatus = res.cfgStatus | 0x08;
+            }
+            if ( res.cfgStatus !== 0 ) {
+              if (configStatus === undefined || configStatus.cfgStatus !== res.cfgStatus ){
+                console.log("BNO055 Calibration May be required. ", res);
+              }
               configStatus = res;
-              console.log("BNO055 Calibration Ok.")
               callback(null, res);
             } else {
-              callback(true, res);
+              configStatus = res;
+              calibrated = true;
+              console.log("BNO055 Calibration Ok.")
+              callback(null, res);
             }
           });
         } else {
@@ -85,7 +95,7 @@ module.exports = function(app) {
       laccel: function(callback) { bno055.getLinearAcceleration(callback)},
       gyro: function(callback) { bno055.getGyroscope(callback)}
     };
-    bno055.beginNDOF((err, res) => {
+    bno055.beginNDOF((err, startOk) => {
       if ( err ) {
         console.log("IMU Failed to start", err);
       } else {
