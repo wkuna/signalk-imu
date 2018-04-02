@@ -13,7 +13,7 @@
   "dependencies": {
     "baconjs": "^0.7.88",
     "async": "^1.4.2",
-    "node-BNO055": "github:ieb/node-BNO055"
+    "node-bno055": "github:ieb/node-BNO055"
   },
   "repository": {
     "type": "git",
