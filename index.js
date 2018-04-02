@@ -22,7 +22,7 @@ const async = require('async');
 
 module.exports = function(app) {
   var BNO055;
-  if ( fs.existsSync('sys/class/i2c-adapter') ) { 
+  if ( fs.existsSync('/sys/class/i2c-adapter') ) { 
     // 1 wire is enabled a
     BNO055 = require('./bno055');
 
