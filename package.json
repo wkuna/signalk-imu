@@ -1,7 +1,7 @@
 {
-  "name": "@ieb/signalk-imu",
-  "version": "1.4.0",
-  "description": "Plugin that reads IMU data from an I2C conneted 10Dof sensor board.",
+  "name": "@akela/signalk-imu",
+  "version": "0.0.1",
+  "description": "Plugin that reads IMU data from an I2C conneted MPU-9255 sensor.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -11,9 +11,10 @@
   ],
   "license": "Apache-2.0",
   "dependencies": {
-    "baconjs": "^0.7.88",
     "async": "^1.4.2",
-    "node-bno055": "github:ieb/node-BNO055"
+    "baconjs": "^0.7.88",
+    "mpu9255": "github:wkuna/mpu9255",
+    "socketio": "^1.0.0"
   },
   "repository": {
     "type": "git",
